@@ -80,7 +80,7 @@ class KittiEvalOdom():
         self.lengths = [100, 200, 300, 400, 500, 600, 700, 800]
         self.num_lengths = len(self.lengths)
 
-    def load_poses_from_txt(self, file_name):
+    def load_poses_from_txt(self, file_name, frame_idx=None):
         """Load poses from txt (KITTI format)
         Each line in the file should follow one of the following structures
             (1) idx pose(3x4 matrix in terms of 12 numbers)
@@ -103,11 +103,11 @@ class KittiEvalOdom():
                 for col in range(4):
                     P[row, col] = line_split[row*4 + col + withIdx]
             if withIdx:
-                frame_idx = line_split[0]
+                frame_idx = int(line_split[0])
             else:
-                frame_idx = cnt
+                frame_idx = cnt # if frame_idx is None else frame_idx
             poses[frame_idx] = P
-        return poses
+        return poses, frame_idx
 
     def trajectory_distances(self, poses):
         """Compute distance for each pose w.r.t frame-0
@@ -423,13 +423,18 @@ class KittiEvalOdom():
         """
         trans_errors = []
         rot_errors = []
-        for i in list(pred.keys())[:-1]:
-            gt1 = gt[i]
-            gt2 = gt[i+1]
+        ## edit for evaluating skipping frames
+        key_list = list(pred.keys())[:-1]
+        for i in range(0,len(key_list)-1):
+            # print(f"key_list: {key_list}")
+            idx_0 = key_list[i]
+            idx_1 = key_list[i+1]
+            gt1 = gt[idx_0]
+            gt2 = gt[idx_1]
             gt_rel = np.linalg.inv(gt1) @ gt2
 
-            pred1 = pred[i]
-            pred2 = pred[i+1]
+            pred1 = pred[idx_0]
+            pred2 = pred[idx_1]
             pred_rel = np.linalg.inv(pred1) @ pred2
             rel_err = np.linalg.inv(gt_rel) @ pred_rel
             
@@ -537,14 +542,22 @@ class KittiEvalOdom():
             self.cur_seq = '{:02}'.format(i)
             file_name = '{:02}.txt'.format(i)
 
-            poses_result = self.load_poses_from_txt(result_dir+"/"+file_name)
-            poses_gt = self.load_poses_from_txt(self.gt_dir + "/" + file_name)
+            poses_result, frame_idx = self.load_poses_from_txt(result_dir+"/"+file_name)
+            poses_gt, frame_idx_gt = self.load_poses_from_txt(self.gt_dir + "/" + file_name)
+            # print(f"frame_idx: {frame_idx}")
+            # print(f"frame_idx: {frame_idx}, poses_gt: {poses_gt}")
+            # assert frame_idx == frame_idx_gt
             self.result_file_name = result_dir+file_name
 
             # Pose alignment to first frame
             idx_0 = sorted(list(poses_result.keys()))[0]
+            # print(f"frame_idx: {idx_0}")
             pred_0 = poses_result[idx_0]
             gt_0 = poses_gt[idx_0]
+            ## only select the index from estimation
+            poses_gt_sel = { your_key: poses_gt[your_key] for your_key in poses_result.keys() }
+            poses_gt = poses_gt_sel
+            # poses_gt_sel = poses_gt[poses_result.keys()]
             for cnt in poses_result:
                 poses_result[cnt] = np.linalg.inv(pred_0) @ poses_result[cnt]
                 poses_gt[cnt] = np.linalg.inv(gt_0) @ poses_gt[cnt]
